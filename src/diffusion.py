@@ -235,7 +235,6 @@ class CycleGAN_Turbo(torch.nn.Module):
         B = x.shape[0]
         assert direction in ["a2b", "b2a"]
         x_enc = vae_enc(x, direction=direction).to(x.dtype)
-        # condition = None
         model_pred = unet(x_enc, timesteps, encoder_hidden_states=text_emb, condition=condition).sample
         x_out = torch.stack([sched.step(model_pred[i], timesteps[i], x_enc[i], return_dict=True).prev_sample for i in range(B)])
         x_out_decoded = vae_dec(x_out, direction=direction)
