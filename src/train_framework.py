@@ -25,72 +25,69 @@ from torchmetrics import StructuralSimilarityIndexMeasure
 
 
 def main(args):
-    accelerator = Accelerator(gradient_accumulation_steps=args.gradient_accumulation_steps, log_with=args.report_to)  # 初始化 Accelerator 和设置随机种子
+    accelerator = Accelerator(gradient_accumulation_steps=args.gradient_accumulation_steps, log_with=args.report_to) 
     set_seed(args.seed)
 
-    if accelerator.is_main_process:    # 创建输出目录
+    if accelerator.is_main_process:  
         os.makedirs(os.path.join(args.output_dir, "checkpoints"), exist_ok=True)
 
     cache_dir = 'img2img-turbo/pretrained_models'
 
-    tokenizer = AutoTokenizer.from_pretrained("stabilityai/sd-turbo", subfolder="tokenizer", revision=args.revision, use_fast=False,cache_dir=cache_dir)   # 初始化 Tokenizer 和文本编码器
+    tokenizer = AutoTokenizer.from_pretrained("stabilityai/sd-turbo", subfolder="tokenizer", revision=args.revision, use_fast=False,cache_dir=cache_dir)  
     noise_scheduler_1step = make_1step_sched()
     text_encoder = CLIPTextModel.from_pretrained("stabilityai/sd-turbo", subfolder="text_encoder",cache_dir=cache_dir).cuda()
 
-    unet, l_modules_unet_encoder, l_modules_unet_decoder, l_modules_unet_others = initialize_unet(args.lora_rank_unet, return_lora_module_names=True)   # 初始化 U-Net 和 VAE
-    # print(unet.config.encoder_hid_dim_type)
-    # print("cross_attention_dim:", unet.config.cross_attention_dim)
-    # print("encoder_hid_dim:", unet.config.encoder_hid_dim)
+    unet, l_modules_unet_encoder, l_modules_unet_decoder, l_modules_unet_others = initialize_unet(args.lora_rank_unet, return_lora_module_names=True)  
     
     vae_a2b, vae_lora_target_modules = initialize_vae(args.lora_rank_vae, return_lora_module_names=True)
 
     
-    weight_dtype = torch.float32    # 初始化权重
-    hist_encoder = HistogramLikeEncoder(output_dim=1024).to(accelerator.device, dtype=weight_dtype) #初始化编码器权重
+    weight_dtype = torch.float32  
+    hist_encoder = HistogramLikeEncoder(output_dim=1024).to(accelerator.device, dtype=weight_dtype) 
     vae_a2b.to(accelerator.device, dtype=weight_dtype)
     text_encoder.to(accelerator.device, dtype=weight_dtype)
     unet.to(accelerator.device, dtype=weight_dtype) 
     text_encoder.requires_grad_(False)
 
 
-    if args.gan_disc_type == "vagan_clip":  # 初始化判别器
+    if args.gan_disc_type == "vagan_clip":
         net_disc_a = vision_aided_loss.Discriminator(cv_type='clip', loss_type=args.gan_loss_type, device="cuda")
         net_disc_a.cv_ensemble.requires_grad_(False)  # Freeze feature extractor
         net_disc_b = vision_aided_loss.Discriminator(cv_type='clip', loss_type=args.gan_loss_type, device="cuda")
         net_disc_b.cv_ensemble.requires_grad_(False)  # Freeze feature extractor
 
-    crit_cycle, crit_idt = torch.nn.L1Loss(), torch.nn.L1Loss()  # 初始化损失函数
+    crit_cycle, crit_idt = torch.nn.L1Loss(), torch.nn.L1Loss() 
 
-    if args.enable_xformers_memory_efficient_attention:   # 启用内存高效注意力和梯度检查点
+    if args.enable_xformers_memory_efficient_attention:  
         unet.enable_xformers_memory_efficient_attention()
-        # cond_unet.enable_xformers_memory_efficient_attention()
+
 
     if args.gradient_checkpointing:
         unet.enable_gradient_checkpointing()
-        # cond_unet.enable_gradient_checkpointing()
+
 
     if args.allow_tf32:
         torch.backends.cuda.matmul.allow_tf32 = True
         
-    # unet.proj_conv.requires_grad_(True)
-    unet.conv_in.requires_grad_(True)   # 解冻unet的输入卷积层，可更新
-    # cond_unet.conv_in.requires_grad_(True)
-    vae_b2a = copy.deepcopy(vae_a2b)    # 复制vae
+
+    unet.conv_in.requires_grad_(True)  
+
+    vae_b2a = copy.deepcopy(vae_a2b)    
 
 
-    params_gen = CycleGAN_Turbo.get_traininable_params(unet, vae_a2b, vae_b2a) + list(hist_encoder.parameters())  # 获取可训练参数
+    params_gen = CycleGAN_Turbo.get_traininable_params(unet, vae_a2b, vae_b2a) + list(hist_encoder.parameters()) 
     
-    vae_enc = VAE_encode(vae_a2b, vae_b2a=vae_b2a)  # 初始化 VAE 编码器和解码器
+    vae_enc = VAE_encode(vae_a2b, vae_b2a=vae_b2a) 
     vae_dec = VAE_decode(vae_a2b, vae_b2a=vae_b2a)
 
-    optimizer_gen = torch.optim.AdamW(params_gen, lr=args.learning_rate, betas=(args.adam_beta1, args.adam_beta2),  # 初始化优化器
+    optimizer_gen = torch.optim.AdamW(params_gen, lr=args.learning_rate, betas=(args.adam_beta1, args.adam_beta2),  
         weight_decay=args.adam_weight_decay, eps=args.adam_epsilon,)
 
     params_disc = list(net_disc_a.parameters()) + list(net_disc_b.parameters())
     optimizer_disc = torch.optim.AdamW(params_disc, lr=args.learning_rate, betas=(args.adam_beta1, args.adam_beta2),
         weight_decay=args.adam_weight_decay, eps=args.adam_epsilon,)
 
-    dataset_train = UnpairedDataset(dataset_folder=args.dataset_folder, image_prep=args.train_img_prep, split="train", tokenizer=tokenizer)   #加载数据以及prompt
+    dataset_train = UnpairedDataset(dataset_folder=args.dataset_folder, image_prep=args.train_img_prep, split="train", tokenizer=tokenizer)   
     train_dataloader = torch.utils.data.DataLoader(dataset_train, batch_size=args.train_batch_size, shuffle=True, num_workers=args.dataloader_num_workers)
     T_val = build_transform(args.val_img_prep)
     fixed_caption_src = dataset_train.fixed_caption_src
@@ -104,7 +101,7 @@ def main(args):
     l_images_src_test, l_images_tgt_test = sorted(l_images_src_test), sorted(l_images_tgt_test)
 
 
-    # 初始化SSIM指标计算器
+
     ssim_metric = StructuralSimilarityIndexMeasure(data_range=1.0).to(accelerator.device)
 
     # make the reference FID statistics
@@ -128,8 +125,8 @@ def main(args):
                         custom_image_tranform=None)
         a2b_ref_mu, a2b_ref_sigma = np.mean(ref_features, axis=0), np.cov(ref_features, rowvar=False)
 
-        # 保存A->B的CMMD参考特征（目标域B的特征）
-        cmmd_ref_a2b = ref_features  # 复用FID计算时的ref_features（目标域B的特征）
+
+        cmmd_ref_a2b = ref_features  
         np.save(os.path.join(args.output_dir, "cmmd_ref_a2b.npy"), cmmd_ref_a2b)
 
         """
@@ -150,8 +147,8 @@ def main(args):
                         custom_image_tranform=None)
         b2a_ref_mu, b2a_ref_sigma = np.mean(ref_features, axis=0), np.cov(ref_features, rowvar=False)
 
-        # 保存B->A的CMMD参考特征（目标域A的特征）
-        cmmd_ref_b2a = ref_features  # 复用FID计算时的ref_features（目标域A的特征）
+
+        cmmd_ref_b2a = ref_features 
         np.save(os.path.join(args.output_dir, "cmmd_ref_b2a.npy"), cmmd_ref_b2a)
 
     lr_scheduler_gen = get_scheduler(args.lr_scheduler, optimizer=optimizer_gen,
@@ -171,7 +168,7 @@ def main(args):
     fixed_a2b_emb_base = text_encoder(fixed_a2b_tokens.cuda().unsqueeze(0))[0].detach()
     fixed_b2a_tokens = tokenizer(fixed_caption_src, max_length=tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt").input_ids[0]
     fixed_b2a_emb_base = text_encoder(fixed_b2a_tokens.cuda().unsqueeze(0))[0].detach()
-    del text_encoder, tokenizer  # free up some memory
+    del text_encoder, tokenizer
 
     unet, vae_enc, vae_dec, net_disc_a, net_disc_b = accelerator.prepare(unet, vae_enc, vae_dec, net_disc_a, net_disc_b)
     net_lpips, optimizer_gen, optimizer_disc, train_dataloader, lr_scheduler_gen, lr_scheduler_disc = accelerator.prepare(
@@ -179,7 +176,7 @@ def main(args):
     )
     hist_encoder = accelerator.prepare(hist_encoder)
 
-    # 准备SSIM指标到加速器
+
     ssim_metric = accelerator.prepare(ssim_metric)
 
     if accelerator.is_main_process:
@@ -203,8 +200,6 @@ def main(args):
             with accelerator.accumulate(*l_acc):
                 img_a = batch["pixel_values_src"].to(dtype=weight_dtype)
                 img_b = batch["pixel_values_tgt"].to(dtype=weight_dtype)
-                # condition_a = batch["condition_src"].to(dtype=weight_dtype)
-                # condition_b = batch["condition_tgt"].to(dtype=weight_dtype)
                 
 
                 bsz = img_a.shape[0]
@@ -369,12 +364,11 @@ def main(args):
                         gc.collect()
                         torch.cuda.empty_cache()
 
-                    # compute val FID and DINO-Struct scores
                     if global_step % args.validation_steps == 1:
                         _timesteps = torch.tensor([noise_scheduler_1step.config.num_train_timesteps - 1] * 1, device="cuda").long()
                         net_dino = DinoStructureLoss()
 
-                        cmmd_ref_a2b = np.load(os.path.join(args.output_dir, "cmmd_ref_a2b.npy"))   #cmmd
+                        cmmd_ref_a2b = np.load(os.path.join(args.output_dir, "cmmd_ref_a2b.npy"))
                         cmmd_ref_b2a = np.load(os.path.join(args.output_dir, "cmmd_ref_b2a.npy"))
 
                         """
@@ -384,11 +378,6 @@ def main(args):
                         os.makedirs(fid_output_dir, exist_ok=True)
                         l_dino_scores_a2b = []
                         l_ssim_scores_a2b = []
-                        # tgt_images = []
-                        # for img_path in l_images_tgt_test:
-                        #     tgt_img = T_val(Image.open(img_path).convert("RGB"))
-                        #     tgt_images.append(tgt_img)
-                        # get val input images from domain a
                         for idx, input_img_path in enumerate(tqdm(l_images_src_test)):
                             if idx > args.validation_num_images and args.validation_num_images > 0:
                                 break
@@ -397,20 +386,14 @@ def main(args):
                                 input_img = T_val(Image.open(input_img_path).convert("RGB"))
                                 img_a = transforms.ToTensor()(input_img)
                                 img_a = transforms.Normalize([0.5], [0.5])(img_a)
-                                # tgt_img = tgt_images[idx % len(tgt_images)]
-                                # tgt_img = rgb2yuv(tgt_img)
-                                # condition_a = load_hist(tgt_img, min_val=args.min_val, max_val=args.max_val, bin_num=args.bin_num)
-                                # condition_a = condition_a.unsqueeze(0).cuda()
-                                # condition_a = condition_a.to(dtype=eval_unet.dtype)
                                 img_a = img_a.unsqueeze(0).cuda()
                                 condition_a = hist_encoder(img_a)
-                                # condition_a = condition_a.unsqueeze(0).cuda()
                                 eval_fake_b = CycleGAN_Turbo.forward_with_networks(img_a, "a2b", eval_vae_enc, eval_unet,
                                     eval_vae_dec, noise_scheduler_1step, _timesteps, fixed_a2b_emb, condition_a)
                                 eval_fake_b_pil = transforms.ToPILImage()(eval_fake_b[0] * 0.5 + 0.5)
                                 eval_fake_b_pil.save(outf)
 
-                                img_a_norm = (img_a + 1.0) / 2.0  # 从[-1,1]转换到[0,1]
+                                img_a_norm = (img_a + 1.0) / 2.0  
                                 fake_b_norm = (eval_fake_b + 1.0) / 2.0
                                 ssim_score = ssim_metric(fake_b_norm, img_a_norm).item()
                                 l_ssim_scores_a2b.append(ssim_score)
@@ -428,13 +411,11 @@ def main(args):
                         ed_mu, ed_sigma = np.mean(gen_features, axis=0), np.cov(gen_features, rowvar=False)
                         score_fid_a2b = frechet_distance(a2b_ref_mu, a2b_ref_sigma, ed_mu, ed_sigma)
 
-                        gen_feat_tensor = torch.tensor(gen_features, dtype=torch.float32).cuda()    #cmmd
+                        gen_feat_tensor = torch.tensor(gen_features, dtype=torch.float32).cuda()    
                         ref_feat_tensor = torch.tensor(cmmd_ref_a2b, dtype=torch.float32).cuda()
-                        # 随机采样以保证两个分布的样本量一致（若不一致）
                         min_samples = min(gen_feat_tensor.size(0), ref_feat_tensor.size(0))
                         gen_feat_sampled = gen_feat_tensor[:min_samples]
                         ref_feat_sampled = ref_feat_tensor[:min_samples]
-                        # 计算CMMD
                         cmmd_score_a2b = cmmd(gen_feat_sampled, ref_feat_sampled).item()
                         print(f"step={global_step}, fid(a2b)={score_fid_a2b:.2f}, ssim(a2b)={ssim_score_a2b:.3f}, dino(a2b)={dino_score_a2b:.3f}, cmmd(a2b)={cmmd_score_a2b:.3f}")
 
@@ -471,7 +452,7 @@ def main(args):
                         #         eval_fake_a_pil = transforms.ToPILImage()(eval_fake_a[0] * 0.5 + 0.5)
                         #         eval_fake_a_pil.save(outf)
 
-                        #         img_b_norm = (img_b + 1.0) / 2.0  # 从[-1,1]转换到[0,1]
+                        #         img_b_norm = (img_b + 1.0) / 2.0 
                         #         fake_a_norm = (eval_fake_a + 1.0) / 2.0
                         #         ssim_score = ssim_metric(fake_a_norm, img_b_norm).item()
                         #         l_ssim_scores_b2a.append(ssim_score)
@@ -488,7 +469,7 @@ def main(args):
                         # ed_mu, ed_sigma = np.mean(gen_features, axis=0), np.cov(gen_features, rowvar=False)
                         # score_fid_b2a = frechet_distance(b2a_ref_mu, b2a_ref_sigma, ed_mu, ed_sigma)
 
-                        # gen_feat_tensor = torch.tensor(gen_features, dtype=torch.float32).cuda()    #cmmd
+                        # gen_feat_tensor = torch.tensor(gen_features, dtype=torch.float32).cuda()   
                         # ref_feat_tensor = torch.tensor(cmmd_ref_b2a, dtype=torch.float32).cuda()
                         # min_samples = min(gen_feat_tensor.size(0), ref_feat_tensor.size(0))
                         # gen_feat_sampled = gen_feat_tensor[:min_samples]
@@ -503,7 +484,7 @@ def main(args):
                         logs["val/ssim_a2b"] = ssim_score_a2b
                         logs["val/dino_struct_a2b"] = dino_score_a2b
                         logs["val/cmmd_a2b"] = cmmd_score_a2b
-                        del net_dino  # free up memory
+                        del net_dino  
 
             progress_bar.set_postfix(**logs)
             accelerator.log(logs, step=global_step)
