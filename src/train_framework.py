@@ -17,7 +17,7 @@ from peft.utils import get_peft_model_state_dict
 from cleanfid.fid import get_folder_features, build_feature_extractor, frechet_distance
 import vision_aided_loss
 from model import make_1step_sched
-from cyclegan_turbo import CycleGAN_Turbo, VAE_encode, VAE_decode, initialize_unet, initialize_vae
+from diffusion import CycleGAN_Turbo, VAE_encode, VAE_decode, initialize_unet, initialize_vae
 from my_utils.training_utils import UnpairedDataset, build_transform, parse_args_unpaired_training,cmmd,histogram_loss
 from my_utils.condition_encoder import HistogramLikeEncoder
 from my_utils.dino_struct import DinoStructureLoss
