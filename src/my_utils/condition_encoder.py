@@ -36,13 +36,13 @@ class ColorStatisticEncoder(nn.Module):
     def __init__(self, in_channels=3, hidden_dim=64):
         super().__init__()
 
-        self.soft_hist = SoftHistogram(bins=32) # 每个通道32个bin
+        self.soft_hist = SoftHistogram(bins=32) 
 
         self.color_mlp = nn.Sequential(
             nn.Conv2d(in_channels, hidden_dim, kernel_size=1),
             nn.GELU(),
             nn.Conv2d(hidden_dim, hidden_dim, kernel_size=1),
-            nn.AdaptiveAvgPool2d(1) # 全局平均
+            nn.AdaptiveAvgPool2d(1) 
         )
         
         hist_dim = in_channels * 32
