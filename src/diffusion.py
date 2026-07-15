@@ -109,7 +109,7 @@ def initialize_vae(rank=4, return_lora_module_names=False):
         return vae
 
 
-class CycleGAN_Turbo(torch.nn.Module):
+class Diffusion_Backbone(torch.nn.Module):
     def __init__(self, pretrained_name=None, pretrained_path=None, ckpt_folder="checkpoints", lora_rank_unet=8, lora_rank_vae=4):
         super().__init__()
         self.tokenizer = AutoTokenizer.from_pretrained("stabilityai/sd-turbo", subfolder="tokenizer")
