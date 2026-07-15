@@ -17,7 +17,7 @@ from peft.utils import get_peft_model_state_dict
 from cleanfid.fid import get_folder_features, build_feature_extractor, frechet_distance
 import vision_aided_loss
 from model import make_1step_sched
-from diffusion import CycleGAN_Turbo, VAE_encode, VAE_decode, initialize_unet, initialize_vae
+from diffusion import Diffusion_Backbone, VAE_encode, VAE_decode, initialize_unet, initialize_vae
 from my_utils.training_utils import UnpairedDataset, build_transform, parse_args_unpaired_training,cmmd,histogram_loss
 from my_utils.condition_encoder import HistogramLikeEncoder
 from my_utils.dino_struct import DinoStructureLoss
@@ -75,7 +75,7 @@ def main(args):
     vae_b2a = copy.deepcopy(vae_a2b)    
 
 
-    params_gen = CycleGAN_Turbo.get_traininable_params(unet, vae_a2b, vae_b2a) + list(hist_encoder.parameters()) 
+    params_gen = Diffusion_Backbone.get_traininable_params(unet, vae_a2b, vae_b2a) + list(hist_encoder.parameters()) 
     
     vae_enc = VAE_encode(vae_a2b, vae_b2a=vae_b2a) 
     vae_dec = VAE_decode(vae_a2b, vae_b2a=vae_b2a)
@@ -213,13 +213,13 @@ def main(args):
                 # A -> fake B -> rec A
                 condition_a = hist_encoder(img_a)
                 condition_b = hist_encoder(img_b)
-                cyc_fake_b = CycleGAN_Turbo.forward_with_networks(img_a, "a2b", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_a2b_emb, condition_a)
-                cyc_rec_a = CycleGAN_Turbo.forward_with_networks(cyc_fake_b, "b2a", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_b2a_emb, condition_a)
+                cyc_fake_b = Diffusion_Backbone.forward_with_networks(img_a, "a2b", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_a2b_emb, condition_a)
+                cyc_rec_a = Diffusion_Backbone.forward_with_networks(cyc_fake_b, "b2a", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_b2a_emb, condition_a)
                 loss_cycle_a = crit_cycle(cyc_rec_a, img_a) * args.lambda_cycle
                 loss_cycle_a += net_lpips(cyc_rec_a, img_a).mean() * args.lambda_cycle_lpips
                 # B -> fake A -> rec B
-                cyc_fake_a = CycleGAN_Turbo.forward_with_networks(img_b, "b2a", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_b2a_emb, condition_b)
-                cyc_rec_b = CycleGAN_Turbo.forward_with_networks(cyc_fake_a, "a2b", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_a2b_emb, condition_b)
+                cyc_fake_a = Diffusion_Backbone.forward_with_networks(img_b, "b2a", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_b2a_emb, condition_b)
+                cyc_rec_b = Diffusion_Backbone.forward_with_networks(cyc_fake_a, "a2b", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_a2b_emb, condition_b)
                 loss_cycle_b = crit_cycle(cyc_rec_b, img_b) * args.lambda_cycle
                 loss_cycle_b += net_lpips(cyc_rec_b, img_b).mean() * args.lambda_cycle_lpips
                 accelerator.backward(loss_cycle_a + loss_cycle_b, retain_graph=False)
@@ -234,8 +234,8 @@ def main(args):
                 """
                 condition_a = hist_encoder(img_a)
                 condition_b = hist_encoder(img_b)
-                fake_a = CycleGAN_Turbo.forward_with_networks(img_b, "b2a", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_b2a_emb, condition_b)
-                fake_b = CycleGAN_Turbo.forward_with_networks(img_a, "a2b", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_a2b_emb, condition_a)
+                fake_a = Diffusion_Backbone.forward_with_networks(img_b, "b2a", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_b2a_emb, condition_b)
+                fake_b = Diffusion_Backbone.forward_with_networks(img_a, "a2b", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_a2b_emb, condition_a)
                 loss_gan_a = net_disc_a(fake_b, for_G=True).mean() * args.lambda_gan
                 loss_gan_b = net_disc_b(fake_a, for_G=True).mean() * args.lambda_gan
                 accelerator.backward(loss_gan_a + loss_gan_b, retain_graph=False)
@@ -251,8 +251,8 @@ def main(args):
                 """
                 condition_a = hist_encoder(img_a)
                 condition_b = hist_encoder(img_b)
-                fake_a = CycleGAN_Turbo.forward_with_networks(img_b, "b2a", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_b2a_emb, condition_b)
-                fake_b = CycleGAN_Turbo.forward_with_networks(img_a, "a2b", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_a2b_emb, condition_a)
+                fake_a = Diffusion_Backbone.forward_with_networks(img_b, "b2a", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_b2a_emb, condition_b)
+                fake_b = Diffusion_Backbone.forward_with_networks(img_a, "a2b", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_a2b_emb, condition_a)
                 hist_loss = histogram_loss(src=img_a, out=fake_b, tgt=img_b, args=args) + histogram_loss(src=img_b, out=fake_a, tgt=img_a, args=args)
                 accelerator.backward(hist_loss * args.lambda_hist, retain_graph=False)
                 if accelerator.sync_gradients:
@@ -266,10 +266,10 @@ def main(args):
                 """
                 condition_a = hist_encoder(img_a)
                 condition_b = hist_encoder(img_b)
-                idt_a = CycleGAN_Turbo.forward_with_networks(img_b, "a2b", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_a2b_emb, condition_b)
+                idt_a = Diffusion_Backbone.forward_with_networks(img_b, "a2b", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_a2b_emb, condition_b)
                 loss_idt_a = crit_idt(idt_a, img_b) * args.lambda_idt
                 loss_idt_a += net_lpips(idt_a, img_b).mean() * args.lambda_idt_lpips
-                idt_b = CycleGAN_Turbo.forward_with_networks(img_a, "b2a", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_b2a_emb, condition_a)
+                idt_b = Diffusion_Backbone.forward_with_networks(img_a, "b2a", vae_enc, unet, vae_dec, noise_scheduler_1step, timesteps, fixed_b2a_emb, condition_a)
                 loss_idt_b = crit_idt(idt_b, img_a) * args.lambda_idt
                 loss_idt_b += net_lpips(idt_b, img_a).mean() * args.lambda_idt_lpips
                 loss_g_idt = loss_idt_a + loss_idt_b
@@ -388,7 +388,7 @@ def main(args):
                                 img_a = transforms.Normalize([0.5], [0.5])(img_a)
                                 img_a = img_a.unsqueeze(0).cuda()
                                 condition_a = hist_encoder(img_a)
-                                eval_fake_b = CycleGAN_Turbo.forward_with_networks(img_a, "a2b", eval_vae_enc, eval_unet,
+                                eval_fake_b = Diffusion_Backbone.forward_with_networks(img_a, "a2b", eval_vae_enc, eval_unet,
                                     eval_vae_dec, noise_scheduler_1step, _timesteps, fixed_a2b_emb, condition_a)
                                 eval_fake_b_pil = transforms.ToPILImage()(eval_fake_b[0] * 0.5 + 0.5)
                                 eval_fake_b_pil.save(outf)
@@ -447,7 +447,7 @@ def main(args):
                         #         condition_b = hist_encoder(img_b)
                         #         img_b = img_b.unsqueeze(0).cuda()
                         #         condition_b = condition_b.unsqueeze(0).cuda()
-                        #         eval_fake_a = CycleGAN_Turbo.forward_with_networks(img_b, "b2a", eval_vae_enc, eval_unet,
+                        #         eval_fake_a = Diffusion_Backbone.forward_with_networks(img_b, "b2a", eval_vae_enc, eval_unet,
                         #             eval_vae_dec, noise_scheduler_1step, _timesteps, fixed_b2a_emb, condition_b)
                         #         eval_fake_a_pil = transforms.ToPILImage()(eval_fake_a[0] * 0.5 + 0.5)
                         #         eval_fake_a_pil.save(outf)
