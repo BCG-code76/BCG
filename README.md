@@ -34,5 +34,11 @@ We recommend using Conda to set up the environment, inheriting the dependencies 
 ```
 bash
 conda env create -f environment.yaml
-conda activate img2img-turbo
+conda activate BCG
+```
+Or use a virtual environment:
+```
+python3 -m venv BCG
+source venv/bin/activate
+pip install -r requirements.txt
 ```
