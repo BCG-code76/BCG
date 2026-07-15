@@ -89,7 +89,7 @@ To train the BCG framework on your own clinically collected dataset, use the tra
 - Run the following command to train the model. 
     ```
     export NCCL_P2P_DISABLE=1
-    accelerate launch --main_process_port 29501 src/train_cyclegan_turbo.py \
+    accelerate launch --main_process_port 29501 src/train_framework.py \
         --pretrained_model_name_or_path="stabilityai/sd-turbo" \
         --output_dir="output/BCG/your_dataset" \
         --dataset_folder "data/your_dataset" \
