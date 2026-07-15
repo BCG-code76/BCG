@@ -3,7 +3,7 @@ import argparse
 from PIL import Image
 import torch
 from torchvision import transforms
-from cyclegan_turbo import CycleGAN_Turbo
+from diffusion import Diffusion_Backbone
 from my_utils.training_utils import build_transform
 
 
