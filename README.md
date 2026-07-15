@@ -1,6 +1,6 @@
 # BCG: Bidirectional Color-Guided Diffusion Framework for Virtual Chromoendoscopy
 
-Our code is at [**Code**](https://github.com/BCG-code76/BCG) 
+[**Code**](https://github.com/BCG-code76/BCG) 
 
 Virtual staining of endoscopic images offers a safer, AI-driven alternative to physical chromoendoscopy. However, accurately rendering precise diagnostic dye textures while preserving underlying anatomical structures remains a fundamental clinical challenge. 
 
