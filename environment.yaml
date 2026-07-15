@@ -1,4 +1,4 @@
-name: img2img
+name: BCG
 channels:
   - pytorch
   - defaults
