@@ -73,7 +73,7 @@ We provide an inference script to test your trained model. Since the model utili
 Translate WLE to Virtual Chromoendoscopy (A → B):
 ```
 python src/inference.py \
-    --input_image "path/to/test_A/sample_wle.png" \
+    --input_image "src/data/dataset_name/test_A/sample_wle.png" \
     --model_path "outputs/checkpoints/model.pkl" \
     --direction "a2b" \
     --prompt "virtual chromoendoscopy image with indigo carmine" \
