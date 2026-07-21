@@ -1,5 +1,6 @@
 import os
 import argparse
+import re
 from PIL import Image
 import torch
 from torchvision import transforms
@@ -61,8 +62,13 @@ if __name__ == "__main__":
 
         output = model(x_t, direction=args.direction, caption=args.prompt, condition=condition)
 
-    bname = os.path.basename(args.input_image)
     os.makedirs(args.output_dir, exist_ok=True)
-
     output_pil_256 = transforms.ToPILImage()(output[0].cpu() * 0.5 + 0.5)
-    output_pil_256.save(os.path.join(args.output_dir, bname))
+
+    full_name = os.path.basename(args.input_image)
+    name_no_ext, ext = os.path.splitext(full_name)
+
+    new_file_name = f"{name_no_ext}_virtual.png"
+    
+    save_path = os.path.join(args.output_dir, new_file_name)
+    output_pil_256.save(save_path)
