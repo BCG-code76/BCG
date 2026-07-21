@@ -3,8 +3,9 @@ import argparse
 from PIL import Image
 import torch
 from torchvision import transforms
-from diffusion import Diffusion_Backbone
+from cyclegan_turbo import CycleGAN_Turbo
 from my_utils.training_utils import build_transform
+from my_utils.condition_encoder import HistogramLikeEncoder  
 
 
 if __name__ == "__main__":
@@ -20,7 +21,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # only one of model_name and model_path should be provided
-    if args.model_name is None != args.model_path is None:
+    if (args.model_name is None) == (args.model_path is None):
         raise ValueError('Either model_name or model_path should be provided')
 
     if args.model_path is not None and args.prompt is None:
@@ -37,6 +38,14 @@ if __name__ == "__main__":
     if args.use_fp16:
         model.half()
 
+    hist_encoder = HistogramLikeEncoder(output_dim=1024).cuda()
+    if args.model_path is not None:
+        ckpt = torch.load(args.model_path, map_location="cuda")
+        load_res = hist_encoder.load_state_dict(ckpt["sd_hist_encoder"], strict=True)
+
+    if args.use_fp16:
+        hist_encoder.half()
+
     T_val = build_transform(args.image_prep)
 
     input_image = Image.open(args.input_image).convert('RGB')
@@ -47,12 +56,13 @@ if __name__ == "__main__":
         x_t = transforms.Normalize([0.5], [0.5])(x_t).unsqueeze(0).cuda()
         if args.use_fp16:
             x_t = x_t.half()
-        output = model(x_t, direction=args.direction, caption=args.prompt)
 
-    output_pil = transforms.ToPILImage()(output[0].cpu() * 0.5 + 0.5)
-    output_pil = output_pil.resize((input_image.width, input_image.height), Image.LANCZOS)
+        condition = hist_encoder(x_t)
 
-    # save the output image
+        output = model(x_t, direction=args.direction, caption=args.prompt, condition=condition)
+
     bname = os.path.basename(args.input_image)
     os.makedirs(args.output_dir, exist_ok=True)
-    output_pil.save(os.path.join(args.output_dir, bname))
+
+    output_pil_256 = transforms.ToPILImage()(output[0].cpu() * 0.5 + 0.5)
+    output_pil_256.save(os.path.join(args.output_dir, bname))
