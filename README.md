@@ -68,7 +68,9 @@ src/data
 │   │   └── ...
 ```
 ## Inference
-We provide an inference script to test your trained model. Since the model utilizes custom weights, you need to specify the --model_path and provide a --prompt (used for the text encoder conditioning) along with the translation --direction.
+We provide an inference script to test your trained model. Since the model utilizes custom weights, you need to specify the `--model_path` and provide a `--prompt` (used for the text encoder conditioning) along with the translation `--direction`.
+
+**Model Checkpoints:** For instructions on how to download the pre-trained model weights, please refer to [src/ckpts/README.md](https://github.com/BCG-code76/BCG/blob/main/src/ckpts/README.md).
 
 Translate WLE to Virtual Chromoendoscopy (A → B):
 ```
