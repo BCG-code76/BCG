@@ -73,11 +73,12 @@ We provide an inference script to test your trained model. Since the model utili
 Translate WLE to Virtual Chromoendoscopy (A → B):
 ```
 python src/inference.py \
-    --input_image "src/data/dataset_name/test_A/sample_wle.png" \
-    --model_path "outputs/checkpoints/model.pkl" \
+    --input_image "src/assets/examples/WLE_1.JPG" \
+    --model_path "src/ckpts/model.pkl" \
     --direction "a2b" \
-    --prompt "virtual chromoendoscopy image with indigo carmine" \
+    --prompt "picture of stained areas" \
     --output_dir "outputs/results"
+    --image_prep "resize_256x256"
 ```
 ## Training
 To train the BCG framework on your own clinically collected dataset, use the train_framework.py script. The training process leverages accelerate for distributed training and mixed precision.
